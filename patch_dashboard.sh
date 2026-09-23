@@ -1,0 +1,4 @@
+sed -i 's/val items = listOf("Home", "Attendance", "Academics", "Messages", "Profile")/val isCR = uiState.user?.role?.name == "CR"\n    val items = if (isCR) listOf("Home", "Attendance", "Academics", "Messages", "CR Duty", "Profile") else listOf("Home", "Attendance", "Academics", "Messages", "Profile")/' app/src/main/java/com/example/ui/dashboard/StudentDashboard.kt
+
+sed -i 's/val icons = listOf(Icons.Filled.Home, Icons.Filled.DateRange, Icons.Filled.MenuBook, Icons.Filled.Message, Icons.Filled.Person)/val icons = if (isCR) listOf(Icons.Filled.Home, Icons.Filled.DateRange, Icons.Filled.MenuBook, Icons.Filled.Message, Icons.Filled.Security, Icons.Filled.Person) else listOf(Icons.Filled.Home, Icons.Filled.DateRange, Icons.Filled.MenuBook, Icons.Filled.Message, Icons.Filled.Person)/' app/src/main/java/com/example/ui/dashboard/StudentDashboard.kt
+

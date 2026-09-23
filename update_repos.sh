@@ -1,0 +1,2 @@
+sed -i 's/class AcademicRepositoryImpl(private val dao: AcademicDao)/class AcademicRepositoryImpl(private val dao: AcademicDao, private val context: android.content.Context)/g' app/src/main/java/com/example/data/repository/AcademicRepositoryImpl.kt
+sed -i 's/class ChatRepositoryImpl(private val dao: ChatDao)/class ChatRepositoryImpl(private val dao: ChatDao, private val context: android.content.Context)/g' app/src/main/java/com/example/data/repository/ChatRepositoryImpl.kt

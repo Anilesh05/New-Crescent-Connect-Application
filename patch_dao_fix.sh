@@ -1,0 +1,2 @@
+sed -i '47,52c\
+    @Query("SELECT * FROM attendance_records WHERE sessionId = :sessionId")\n    suspend fun getRecordsForSessionList(sessionId: String): List<AttendanceRecordEntity>\n\n    @Query("SELECT * FROM attendance_records WHERE sessionId = :sessionId")\n    suspend fun getRecordsForSession(sessionId: String): List<AttendanceRecordEntity>\n' app/src/main/java/com/example/data/local/dao/AttendanceDao.kt

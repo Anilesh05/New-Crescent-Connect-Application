@@ -1,0 +1,1 @@
+{"name": "wrapper", "private": true, "scripts": {"dev": "cd web && npm run dev", "build": "cd web && npm run build", "lint": "cd web && npm run lint", "preview": "cd web && npm run preview"}}

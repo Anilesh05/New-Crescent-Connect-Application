@@ -1,0 +1,8 @@
+{
+  "name": "Remix CrescentConnect",
+  "description": "AI-Enabled Smart College Attendance and Academic Management Application for BSARCIST",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

@@ -1,0 +1,223 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // =============================================================
+    // Helper Functions for Authentication & Role Resolution
+    // =============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    // Check if Custom Claims exist on the auth token (preferred production pattern)
+    function tokenRole() {
+      return request.auth.token.role;
+    }
+    
+    function hasTokenRole(role) {
+      return isAuthenticated() && tokenRole() == role;
+    }
+    
+    function hasAnyTokenRole(roles) {
+      return isAuthenticated() && tokenRole() in roles;
+    }
+    
+    // Fallback to Firestore users collection: /users/$(request.auth.uid)
+    function userDocExists() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+    
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    
+    function hasFirestoreRole(roles) {
+      return isAuthenticated() && userDocExists() && getUserData().role in roles;
+    }
+    
+    // Unified role resolution: Custom Claims have precedence, Firestore fallback secondary
+    function hasAnyRole(roles) {
+      return hasAnyTokenRole(roles) || hasFirestoreRole(roles);
+    }
+    
+    function isAdmin() {
+      return hasAnyRole(['ADMIN']);
+    }
+    
+    function isFacultyOrAdviserOrAdmin() {
+      return hasAnyRole(['STAFF', 'CLASS_ADVISER', 'ADMIN']);
+    }
+    
+    function isAuthorizedMarker() {
+      return hasAnyRole(['STAFF', 'CLASS_ADVISER', 'ADMIN', 'CR']);
+    }
+
+    // =============================================================
+    // 1. Users Collection (/users/{userId})
+    // =============================================================
+    match /users/{userId} {
+      // Students can ONLY read their own document.
+      // Staff, Class Adviser, Admin, and CR can read user documents (e.g. for batch lists).
+      allow read: if isOwner(userId) || hasAnyRole(['STAFF', 'CLASS_ADVISER', 'ADMIN', 'CR']);
+      
+      // Creating a user document:
+      // - Users can create their own document, but the role MUST strictly be 'STUDENT'
+      //   (prevents self-escalation to ADMIN/STAFF).
+      // - Admins can create any user with any role.
+      allow create: if (isOwner(userId) && request.resource.data.role == 'STUDENT') || isAdmin();
+      
+      // Updating a user document:
+      // - Users can update their own profile, but CANNOT change their role field.
+      // - Admins can update any user and their role.
+      allow update: if (isOwner(userId) && request.resource.data.role == resource.data.role) || isAdmin();
+      
+      // Deleting a user document: Only ADMIN
+      allow delete: if isAdmin();
+    }
+
+    // =============================================================
+    // 2. Announcements (/announcements/{annId})
+    // =============================================================
+    match /announcements/{annId} {
+      // All authenticated users can read official announcements
+      allow read: if isAuthenticated();
+      
+      // Only authorized personnel (STAFF, CLASS_ADVISER, ADMIN, CR) can create announcements
+      // Students can NEVER create announcements.
+      allow create: if isAuthorizedMarker() 
+        && request.resource.data.authorId == request.auth.uid
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0;
+        
+      // Only the author or an ADMIN can update or delete announcements
+      allow update, delete: if isAuthorizedMarker() && (
+        resource.data.authorId == request.auth.uid || isAdmin()
+      );
+    }
+
+    // =============================================================
+    // 3. Study Materials (/study_materials and /studyMaterials)
+    // =============================================================
+    match /study_materials/{matId} {
+      // All authenticated users can read study materials for their courses
+      allow read: if isAuthenticated();
+      
+      // Only Faculty, Class Advisers, or Admins can upload study materials
+      // Students can NEVER create, update, or delete study materials.
+      allow create: if isFacultyOrAdviserOrAdmin() 
+        && (request.resource.data.staffId == request.auth.uid || request.resource.data.uploadedBy == request.auth.uid);
+        
+      allow update, delete: if isFacultyOrAdviserOrAdmin() && (
+        resource.data.staffId == request.auth.uid || 
+        resource.data.uploadedBy == request.auth.uid || 
+        isAdmin()
+      );
+    }
+
+    match /studyMaterials/{matId} {
+      allow read: if isAuthenticated();
+      allow create: if isFacultyOrAdviserOrAdmin() 
+        && (request.resource.data.staffId == request.auth.uid || request.resource.data.uploadedBy == request.auth.uid);
+      allow update, delete: if isFacultyOrAdviserOrAdmin() && (
+        resource.data.staffId == request.auth.uid || 
+        resource.data.uploadedBy == request.auth.uid || 
+        isAdmin()
+      );
+    }
+
+    // =============================================================
+    // 4. Courses & Assignments (/courses, /assignments)
+    // =============================================================
+    match /courses/{courseId} {
+      allow read: if isAuthenticated();
+      allow write: if isFacultyOrAdviserOrAdmin();
+    }
+
+    match /assignments/{assId} {
+      allow read: if isAuthenticated();
+      allow write: if isFacultyOrAdviserOrAdmin();
+    }
+
+    // =============================================================
+    // 5. Conversations & Messages
+    // =============================================================
+    match /conversations/{convId} {
+      allow read: if isAuthenticated() && (
+        (resource.data.participants != null && request.auth.uid in resource.data.participants) || 
+        isAdmin()
+      );
+      allow create: if isAuthenticated() && request.auth.uid in request.resource.data.participants;
+      allow update: if isAuthenticated() && (
+        request.auth.uid in resource.data.participants || isAdmin()
+      );
+      
+      match /messages/{msgId} {
+        allow read: if isAuthenticated() && (
+          request.auth.uid in get(/databases/$(database)/documents/conversations/$(convId)).data.participants || 
+          isAdmin()
+        );
+        allow create: if isAuthenticated() && request.auth.uid == request.resource.data.senderId;
+      }
+    }
+
+    // =============================================================
+    // 6. Attendance Sessions & Records (Critical Security Boundary)
+    // =============================================================
+    match /attendanceSessions/{sessionId} {
+      // Authenticated users can read session headers to check current period/attendance status
+      allow read: if isAuthenticated();
+      
+      // Creating a session: Only STAFF, CLASS_ADVISER, ADMIN, or CR
+      // Students can NEVER create attendance sessions.
+      allow create: if isAuthorizedMarker() && (
+        request.resource.data.staffId == request.auth.uid || 
+        request.resource.data.markedBy == request.auth.uid
+      );
+      
+      // Updating a session: Only session creator or ADMIN
+      // Students can NEVER modify session settings (e.g., cannot enable self-attendance or change coordinates).
+      allow update: if isAuthorizedMarker() && (
+        resource.data.staffId == request.auth.uid || 
+        resource.data.markedBy == request.auth.uid || 
+        isAdmin()
+      );
+      
+      // Deleting a session: Only ADMIN or creator
+      allow delete: if isAdmin() || (
+        isAuthorizedMarker() && (resource.data.staffId == request.auth.uid || resource.data.markedBy == request.auth.uid)
+      );
+      
+      // -----------------------------------------------------------
+      // Attendance Records Subcollection: /attendanceSessions/{sessionId}/records/{studentId}
+      // -----------------------------------------------------------
+      match /records/{studentId} {
+        // A student can ONLY read their own record.
+        // Authorized markers (Staff, Class Adviser, Admin, CR) can read all records in the session.
+        // Students CANNOT read another student's attendance status.
+        allow read: if isOwner(studentId) || isAuthorizedMarker();
+        
+        // Writing / Marking attendance:
+        // Case 1: Authorized Marker (Staff, Class Adviser, Admin, CR) can mark any student.
+        // Case 2: Student marking their OWN attendance:
+        //   - Student must be the record owner (request.auth.uid == studentId)
+        //   - The parent session MUST have isSelfAttendanceEnabled == true
+        //   - Record studentId must match request.auth.uid
+        //   - Status must be 'PRESENT' or 'ABSENT'
+        allow write: if isAuthorizedMarker() || (
+          isOwner(studentId) &&
+          request.resource.data.studentId == request.auth.uid &&
+          request.resource.data.status in ['PRESENT', 'ABSENT'] &&
+          get(/databases/$(database)/documents/attendanceSessions/$(sessionId)).data.isSelfAttendanceEnabled == true
+        );
+        
+        // Deleting a record: Only Staff or Admin. Students can NEVER delete attendance records.
+        allow delete: if isFacultyOrAdviserOrAdmin();
+      }
+    }
+  }
+}

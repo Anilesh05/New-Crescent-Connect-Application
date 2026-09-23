@@ -1,0 +1,2 @@
+sed -i 's/val isActive: Boolean/val isActive: Boolean,\n    val syncStatus: String = "SYNCED"/' app/src/main/java/com/example/data/local/entity/AttendanceEntities.kt
+sed -i 's/CRPermissionEntity("P1", "U4", "C2", "2026-08-30", 3, System.currentTimeMillis(), System.currentTimeMillis() + 86400000, "U2", true)/CRPermissionEntity("P1", "U4", "C2", "2026-08-30", 3, System.currentTimeMillis(), System.currentTimeMillis() + 86400000, "U2", true, "SYNCED")/' app/src/main/java/com/example/data/local/DatabaseSeeder.kt
